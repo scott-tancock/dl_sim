@@ -1,0 +1,83 @@
+package main
+
+import (
+	"fmt"
+	//"sync"
+	"os"
+	//"io"
+	"bufio"
+	//"strconv"
+	"math/rand"
+	"time"
+	"github.com/wcharczuk/go-chart"
+)
+
+const DL_LEN = 512
+const DL_QTY = 1
+const AV_TRAIN_PER_BIN = 64
+const AV_TEST_PER_BIN = 1024
+const TRAIN_QTY = DL_LEN * AV_TRAIN_PER_BIN
+const TEST_QTY = DL_LEN * AV_TEST_PER_BIN
+const AV_BIN_SZ_PS = 15
+const BIN_SZ_STD_PS = 7
+
+func main() {
+	rand.Seed(time.Now().UnixNano())
+	fmt.Printf("DL Length: %v\n", DL_LEN)
+	fmt.Printf("Number of Delay Lines: %v\n", DL_QTY)
+	fmt.Printf("Average Training Hits per Bin: %v\n", AV_TRAIN_PER_BIN)
+	fmt.Printf("Average Test Hits per Bin: %v\n", AV_TEST_PER_BIN)
+	fmt.Printf("Total Training Hits: %v\n", TRAIN_QTY)
+	fmt.Printf("Total Test Hits: %v\n", TEST_QTY)
+	fmt.Printf("Average Bin Size in Picoseconds: %v\n", AV_BIN_SZ_PS)
+	fmt.Printf("Bin Size Standard Deviation in Picoseconds: %v\n", BIN_SZ_STD_PS)
+	taus := make([][]int, DL_QTY)
+	acc_taus := make([][]int, DL_QTY)
+	est_taus := make([][]int, DL_QTY)
+	est_acc_taus := make([][]int, DL_QTY)
+	for i := 0; i < DL_QTY; i++ {
+		taus[i] = make([]int, DL_LEN)
+		acc_taus[i] = make([]int, DL_LEN+1)
+		est_taus[i] = make([]int, DL_LEN)
+		est_acc_taus[i] = make([]int, DL_LEN+1)
+		acc_taus[i][0] = 0;
+		for j := 0; j < DL_LEN; j++ {
+			taus[i][j] = (int) (AV_BIN_SZ_PS + (BIN_SZ_STD_PS * rand.NormFloat64()))
+			acc_taus[i][j+1] = acc_taus[i][j] + taus[i][j]
+		}
+	}
+	x := make([]float64, DL_LEN+1)
+	y := make([]float64, DL_LEN+1)
+	for i,_ := range x {
+		x[i] = float64 (i)
+		y[i] = float64(acc_taus[0][i])
+	}
+	graph := chart.Chart{
+		XAxis: chart.XAxis {
+			Name: "Bin Number",
+			NameStyle: chart.StyleShow(),
+			Style: chart.StyleShow(),
+		},
+		YAxis: chart.YAxis {
+			Name: "Time offset",
+			NameStyle: chart.StyleShow(),
+			Style: chart.StyleShow(),
+		},
+		Series: []chart.Series{
+			chart.ContinuousSeries{
+				Style: chart.Style {
+					Show: true,
+					StrokeColor: chart.GetDefaultColor(0).WithAlpha(64),
+					FillColor: chart.GetDefaultColor(0).WithAlpha(64),
+				},
+				XValues: x,
+				YValues: y,
+			},
+		},
+	}
+	file, err := os.Create("chart.png")
+	fmt.Println(err)
+	writer := bufio.NewWriter(file)
+	defer file.Close()
+	graph.Render(chart.PNG, writer)
+}
