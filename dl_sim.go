@@ -7,6 +7,7 @@ import (
 	//"io"
 	"bufio"
 	"strconv"
+	"math"
 	"math/rand"
 	"time"
 	"github.com/wcharczuk/go-chart"
@@ -15,8 +16,8 @@ import (
 
 const DL_LEN = 512
 var DL_QTY int = 8
-const AV_TRAIN_PER_BIN = 128
-const AV_TEST_PER_BIN = 1024
+const AV_TRAIN_PER_BIN = 1024*8
+const AV_TEST_PER_BIN = 1024*32
 const TRAIN_QTY = DL_LEN * AV_TRAIN_PER_BIN
 const TEST_QTY = DL_LEN * AV_TEST_PER_BIN
 const AV_BIN_SZ_PS = 15
@@ -56,6 +57,49 @@ func draw_graph(x, y []float64, filename, xlabel, ylabel string) {
 	file.Close()
 }	
 
+func draw_multi_chart(x, y [][]float64, cols []drawing.Color, filename, xlabel, ylabel string){
+	for i,_ := range x {
+		for j,_ := range x[i] {
+			fmt.Printf("(%v,%v), ", x[i][j], y[i][j])
+		}
+		fmt.Println()
+	}
+	series := make([]chart.Series, len(x))
+	for i,_ := range series {
+		series[i] = chart.ContinuousSeries{
+			Style: chart.Style {
+				Show: true,
+				StrokeColor: cols[i].WithAlpha(64),
+				//FillColor: cols[i].WithAlpha(64),
+				//DotWidth: 1,
+				//DotColor: cols[i],
+			},
+			XValues: x[i],
+			YValues: y[i],
+		}
+	}
+	graph := chart.Chart{
+		XAxis: chart.XAxis {
+			Name: xlabel,
+			NameStyle: chart.StyleShow(),
+			Style: chart.StyleShow(),
+		},
+		YAxis: chart.YAxis {
+			Name: ylabel,
+			NameStyle: chart.StyleShow(),
+			Style: chart.StyleShow(),
+		},
+		Series: series,
+		Height: 1000,
+		Width: 2000,
+	}
+	file, err := os.Create(filename)
+	fmt.Println(err)
+	writer := bufio.NewWriter(file)
+	graph.Render(chart.PNG, writer)
+	file.Close()
+}
+
 func draw_multi_scatter(x, y [][]float64, cols []drawing.Color, filename, xlabel, ylabel string){
 	series := make([]chart.Series, len(x))
 	for i,_ := range series {
@@ -92,7 +136,41 @@ func draw_multi_scatter(x, y [][]float64, cols []drawing.Color, filename, xlabel
 	file.Close()
 }
 
+func collapse2d1(xs [][]float64) {
+	for i := 0; i < len(xs); i++ {
+		for j := 0; j < len(xs[i]); j++ {
+			/*
+			if math.IsInf(xs[i][j], 0) || math.IsNaN(xs[i][j]) {
+				fmt.Printf("Error: pos (%v,%v) has value %v\n", i, j, xs[i][j])
+			}
+			*/
+			xs[i][j] = math.Abs(xs[i][j])
+		}
+	}
+	for f := 2; f <= len(xs); f *= 2 {
+		s := f/2
+		for i := 0; i < len(xs); i += f {
+			for j := 0; j < len(xs[i]); j++ {
+				xs[i][j] += xs[i+s][j]
+			}
+		}
+	}
+}
+
 func main() {
+	/*
+	test_arr := make([][]float64, 128)
+	for i,_ := range test_arr {
+		test_arr[i] = make([]float64, 4)
+		for j,_ := range test_arr[i] {
+			test_arr[i][j] = float64((i+1)*(j+1))
+		}
+	}
+	collapse2d1(test_arr)
+	for i,_ := range test_arr[0] {
+		fmt.Println(test_arr[0][i])
+	}
+	*/
 	//Parameters
 	rand.Seed(time.Now().UnixNano())
 	DL_QTY,_ = strconv.Atoi(os.Args[1])
@@ -188,14 +266,17 @@ func main() {
 	}
 	
 	//Testing
-	x := make([]float64, TEST_QTY)
+	x := make([]float64, DL_QTY)
 	xs := make([][]float64, 3)
-	y_av := make([]float64, TEST_QTY)
-	y_wav := make([]float64, TEST_QTY)
-	y_mm := make([]float64, TEST_QTY)
+	y_av := make([][]float64, TEST_QTY)
+	y_wav := make([][]float64, TEST_QTY)
+	y_mm := make([][]float64, TEST_QTY)
 	ys := make([][]float64, 3)
 	cols := make([]drawing.Color, 3)
 	for i := 0; i < TEST_QTY; i++ {
+		y_av[i] = make([]float64, DL_QTY)
+		y_wav[i] = make([]float64, DL_QTY)
+		y_mm[i] = make([]float64, DL_QTY)
 		time_elapsed := MAX_TIME_PS * rand.Float64()
 		positions := make([]int, DL_QTY)
 		for j := 0; j < DL_QTY; j++ {
@@ -206,7 +287,7 @@ func main() {
 				}
 			}
 		}
-		var av, min, max, mm, wt, wav float64 = 0, 0, MAX_TIME_PS, 0, 0, 0
+		var av, min, max, /*mm,*/ wt, wav float64 = 0, 0, MAX_TIME_PS, /*0, */0, 0
 		for j := 0; j < DL_QTY; j++ {
 			av += (est_acc_taus[j][positions[j]] + est_acc_taus[j][positions[j]+1]) / 2
 			if(min < est_acc_taus[j][positions[j]]) {
@@ -215,29 +296,54 @@ func main() {
 			if(max > est_acc_taus[j][positions[j]+1]) {
 				max = est_acc_taus[j][positions[j]+1]
 			}
-			wt += 1/est_taus[j][positions[j]]
-			wav += ((est_acc_taus[j][positions[j]] + est_acc_taus[j][positions[j]+1]) / 2) / est_taus[j][positions[j]]
+			wt_i := 1/est_taus[j][positions[j]]
+			if(!math.IsNaN(wt_i) && !math.IsInf(wt_i, 0)) {
+				wt += wt_i
+				wav += ((est_acc_taus[j][positions[j]] + est_acc_taus[j][positions[j]+1]) / 2) * wt_i
+			} else {
+				wt_i = 0.01
+				wt += wt_i
+				wav += ((est_acc_taus[j][positions[j]] + est_acc_taus[j][positions[j]+1]) / 2) * wt_i
+			}
+			
+			//av /= float64(DL_QTY)
+			//wav /= wt
+			//mm = (min + max) / 2
+			//av_err := av - time_elapsed
+			//wav_err := wav - time_elapsed
+			//mm_err := mm - time_elapsed
+			y_av[i][j] = (av/float64(j+1))-time_elapsed
+			y_wav[i][j] = (wav/wt)-time_elapsed
+			y_mm[i][j] = ((min+max)/2)-time_elapsed
+			/*
+			if math.IsNaN(y_wav[i][j]) {
+				fmt.Printf("Error occurred at (%v,%v) (te: %v, pos: %v, acc[k]: %v, acc[k+1]: %v)\n", i, j, time_elapsed, positions[j], est_acc_taus[j][positions[j]], est_acc_taus[j][positions[j]+1])
+				fmt.Printf("wt: %v, wav: %v, y_wav: %v\n", wt, wav, y_wav[i][j])
+				break
+			}
+			*/
+
 		}
-		av /= float64(DL_QTY)
-		wav /= wt
-		mm = (min + max) / 2
-		av_err := av - time_elapsed
-		wav_err := wav - time_elapsed
-		mm_err := mm - time_elapsed
-		x[i] = time_elapsed
-		y_av[i] = av_err
-		y_wav[i] = wav_err
-		y_mm[i] = mm_err
+		
 	}
+	for i,_ := range x {
+		x[i] = float64(i+1)
+	}
+	collapse2d1(y_av)
+	collapse2d1(y_wav)
+	collapse2d1(y_mm)
+	ys[0] = y_av[0]
+	ys[1] = y_wav[0]
+	ys[2] = y_mm[0]
 	for i,_ := range xs {
 		xs[i] = x
+		//ys[i] = make([]float64, DL_QTY)
+		for j,_ := range xs[i] {
+			ys[i][j] /= TEST_QTY
+		}
 	}
-	ys[0] = y_av
-	ys[1] = y_wav
-	ys[2] = y_mm
 	cols[0] = chart.GetDefaultColor(0)
 	cols[1] = chart.GetDefaultColor(1)
-	cols[2] = chart.GetDefaultColor(2)
-	draw_multi_scatter(xs, ys, cols, "train_errs.png", "Time Elapsed (ps)", "Error (ps)")
+	cols[2] = chart.GetDefaultColor(2)	
+	draw_multi_chart(xs, ys, cols, "train_errs.png", "Number of Delay Lines", "Average Error (ps)")
 }
-
