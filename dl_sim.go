@@ -10,15 +10,16 @@ import (
 	"math"
 	"math/rand"
 	"time"
+	"runtime"
 	"github.com/wcharczuk/go-chart"
 	"github.com/wcharczuk/go-chart/drawing"
 )
 
 const DL_LEN = 512
 var DL_QTY int = 8
-const AV_TRAIN_PER_BIN = 1024
+var AV_TRAIN_PER_BIN int = 1024
 const AV_TEST_PER_BIN = 32
-const TRAIN_QTY = DL_LEN * AV_TRAIN_PER_BIN
+var TRAIN_QTY int = DL_LEN * AV_TRAIN_PER_BIN
 const TEST_QTY = DL_LEN * AV_TEST_PER_BIN
 const AV_BIN_SZ_PS = 15
 const BIN_SZ_STD_PS = 7
@@ -75,7 +76,7 @@ func draw_multi_chart(x, y [][]float64, cols []drawing.Color, filename, xlabel, 
 			Style: chart.Style {
 				Show: true,
 				StrokeColor: cols[i].WithAlpha(64),
-				StrokeWidth: 3,
+				StrokeWidth: 5,
 				//FillColor: cols[i].WithAlpha(64),
 				//DotWidth: 1,
 				//DotColor: cols[i],
@@ -96,8 +97,8 @@ func draw_multi_chart(x, y [][]float64, cols []drawing.Color, filename, xlabel, 
 			Style: chart.StyleShow(),
 		},
 		Series: series,
-		Height: 1000,
-		Width: 2000,
+		//Height: 1000,
+		//Width: 2000,
 	}
 	file, err := os.Create(filename)
 	fmt.Println(err)
@@ -132,8 +133,8 @@ func draw_multi_scatter(x, y [][]float64, cols []drawing.Color, filename, xlabel
 			Style: chart.StyleShow(),
 		},
 		Series: series,
-		Height: 1000,
-		Width: 2000,
+		//Height: 1000,
+		//Width: 2000,
 	}
 	file, err := os.Create(filename)
 	fmt.Println(err)
@@ -179,7 +180,10 @@ func main() {
 	*/
 	//Parameters
 	rand.Seed(time.Now().UnixNano())
+	fmt.Printf("Go Procs was %v, now %v\n", runtime.GOMAXPROCS(runtime.NumCPU()), runtime.NumCPU())
 	DL_QTY,_ = strconv.Atoi(os.Args[1])
+	AV_TRAIN_PER_BIN,_ = strconv.Atoi(os.Args[2])
+	TRAIN_QTY = DL_LEN * AV_TRAIN_PER_BIN
 	fmt.Printf("DL Length: %v\n", DL_LEN)
 	fmt.Printf("Number of Delay Lines: %v\n", DL_QTY)
 	fmt.Printf("Average Training Hits per Bin: %v\n", AV_TRAIN_PER_BIN)
@@ -225,7 +229,9 @@ func main() {
 
 	fmt.Println("Training");
 	//Training Process
-	for i := 0; i < DL_QTY; i++ {
+	type nothing struct{}
+	c := make(chan nothing)
+	calib := func(i int){
 		fmt.Println(i)
 		accs := make([]int, DL_LEN)
 		for j := 0; j < DL_LEN; j++ {
@@ -272,6 +278,13 @@ func main() {
 			}
 			draw_graph(x, y, fmt.Sprintf("sum_err_%03v.png", i), "Bin Number", "INL (ps)")
 		}
+		c <- nothing{}
+	}
+	for i := 0; i < DL_QTY; i++ {
+		go calib(i)
+	}
+	for i := 0; i < DL_QTY; i++ {
+		<-c
 	}
 	
 	fmt.Println("Testing")
@@ -374,7 +387,14 @@ func main() {
 		}
 		cols[0] = chart.GetDefaultColor(0)
 		cols[1] = chart.GetDefaultColor(1)
-		cols[2] = chart.GetDefaultColor(2)	
-		draw_multi_chart(xs, ys, cols, "train_errs.png", "Number of Delay Lines", "Average Error (ps)")
+		cols[2] = chart.GetDefaultColor(2)
+		var calib string
+		if use_calib_errors {
+			calib = "calib"
+		} else {
+			calib = "nocalib"
+		}
+		draw_multi_chart(xs, ys, cols, fmt.Sprintf("test_errs_%s_%v.png", calib, AV_TRAIN_PER_BIN), "Number of Delay Lines", "Average Error (ps)")
 	}
+	time.Sleep(1 * time.Second)
 }
