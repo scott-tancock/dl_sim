@@ -60,6 +60,7 @@ func draw_graph(x, y []float64, filename, xlabel, ylabel string) {
 	fmt.Println(err)
 	writer := bufio.NewWriter(file)
 	graph.Render(chart.PNG, writer)
+	writer.Flush()
 	file.Close()
 }	
 
@@ -104,6 +105,7 @@ func draw_multi_chart(x, y [][]float64, cols []drawing.Color, filename, xlabel, 
 	fmt.Println(err)
 	writer := bufio.NewWriter(file)
 	graph.Render(chart.PNG, writer)
+	writer.Flush()
 	file.Close()
 }
 
@@ -140,6 +142,7 @@ func draw_multi_scatter(x, y [][]float64, cols []drawing.Color, filename, xlabel
 	fmt.Println(err)
 	writer := bufio.NewWriter(file)
 	graph.Render(chart.PNG, writer)
+	writer.Flush()
 	file.Close()
 }
 
